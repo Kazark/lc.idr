@@ -25,19 +25,20 @@ TokenizerResult = ParseResult TokenizeError Token
 tokenizeChar : Char -> TokenizerResult
 tokenizeChar '(' = Found OpenParen
 tokenizeChar ')' = Found CloseParen
-tokenizeChar '\\' = Found Lambda
+tokenizeChar '^' = Found Lambda
 tokenizeChar '.' = Found Dot
 tokenizeChar x = Found $ VarTok x
 
+-- applicatve?
 shortCircuit : ParseResult a b -> ParseResult a (List b) -> ParseResult a (List b)
 shortCircuit (Found x) (Found acc) = Found $ x :: acc
 shortCircuit _ (FailedWith x) = FailedWith x
 shortCircuit (FailedWith x) _ = FailedWith x
 
 tokenize : String -> ParseResult TokenizeError (List Token)
-tokenize = compactResult . tokenize' . unpack where
-  tokenize' : List Char -> List TokenizerResult
-  tokenize' = map tokenizeChar . filter (/= ' ')
+tokenize = compactResult . tokenizeEach . unpack where
+  tokenizeEach : List Char -> List TokenizerResult
+  tokenizeEach = map tokenizeChar . filter (/= ' ')
   compactResult : List TokenizerResult -> ParseResult TokenizeError (List Token)
   compactResult = foldr shortCircuit $ Found []
 
@@ -56,11 +57,12 @@ data Expr =
 
 data ParserError =
   NoTokens
-  | MalformedLambdaExpr
   | AdvancedSyntaxNotImplemented
   | FailedToMatchCloseParen
   | TrailingCharacters (List Token)
   | BubbledUpTokenizeError TokenizeError
+  | ExpressionTerminatedUnexpectedly
+  | UnexpectedToken Token
 
 ParserResult : Type
 ParserResult = ParseResult ParserError (Expr, List Token)
@@ -71,7 +73,8 @@ mutual
   parseExpr ((VarTok x) :: xs) = Found (Variable x, xs)
   parseExpr (Lambda :: xs) = parseAbstraction xs
   parseExpr (OpenParen :: xs) = parseApplication xs
-  parseExpr _ = FailedWith MalformedLambdaExpr
+  parseExpr [] = FailedWith ExpressionTerminatedUnexpectedly
+  parseExpr (x :: _) = FailedWith $ UnexpectedToken x
 
   partial
   parseAbstraction : List Token -> ParserResult
@@ -80,7 +83,7 @@ mutual
     case parseExpr xs of
       Found (expr, remainder) => Found (Abstraction x expr, remainder)
       FailedWith error => FailedWith error
-  parseAbstraction _ = FailedWith MalformedLambdaExpr
+  parseAbstraction (x :: _) = FailedWith $ UnexpectedToken x
 
   partial
   parseApplication : List Token -> ParserResult
@@ -99,11 +102,11 @@ parseTokens [] = FailedWith NoTokens
 parseTokens ((VarTok x) :: []) = Found $ Variable x
 parseTokens (Lambda :: (_ :: _)) = FailedWith AdvancedSyntaxNotImplemented
 parseTokens (OpenParen :: xs) =
-  case parseExpr xs of
-    Found (expr, [CloseParen]) => Found expr
-    Found (expr, []) => FailedWith FailedToMatchCloseParen
+  case parseApplication xs of
+    Found (expr, []) => Found expr
+    Found (expr, x) => FailedWith $ TrailingCharacters x
     FailedWith error => FailedWith error
-parseTokens (_ :: (_ :: _)) = FailedWith MalformedLambdaExpr
+parseTokens (x :: (_ :: _)) = FailedWith $ UnexpectedToken x
 
 partial
 parse : String -> ParseResult ParserError Expr
