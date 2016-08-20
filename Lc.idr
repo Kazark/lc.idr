@@ -2,12 +2,6 @@ module Lc
 
 %default total
 
--- Lambda expressions are composed of:
--- 
---     variables v1, v2, ..., vn, ...
---     the abstraction symbols lambda 'λ' and dot '.'
---     parentheses ( )
--- 
 data Token =
   VarTok Char
   | Lambda
@@ -42,13 +36,7 @@ tokenize = compactResult . tokenizeEach . unpack where
   compactResult : List TokenizerResult -> ParseResult TokenizeError (List Token)
   compactResult = foldr shortCircuit $ Found []
 
--- The set of lambda expressions, Expr, can be defined inductively:
--- 
---     If x is a variable, then x : Expr
---     If x is a variable and M : Expr, then (\x.M) : Expr
---     If M, N : Expr, then (M N) : Expr
--- 
--- Instances of rule 2 are known as abstractions and instances of rule 3 are known as applications.[14]
+----------------------------------------------------------------------------------
 
 data Expr =
   Variable Char
@@ -61,54 +49,53 @@ data ParserError =
   | FailedToMatchCloseParen
   | TrailingCharacters (List Token)
   | BubbledUpTokenizeError TokenizeError
-  | ExpressionTerminatedUnexpectedly
+  | UnexpectedTermination
   | UnexpectedToken Token
 
 ParserResult : Type
-ParserResult = ParseResult ParserError (Expr, List Token)
+ParserResult = ParseResult ParserError (Expr, Nat)
 
-mutual
-  partial
-  parseExpr : List Token -> ParserResult
-  parseExpr ((VarTok x) :: xs) = Found (Variable x, xs)
-  parseExpr (Lambda :: xs) = parseAbstraction xs
-  parseExpr (OpenParen :: xs) = parseApplication xs
-  parseExpr [] = FailedWith ExpressionTerminatedUnexpectedly
-  parseExpr (x :: _) = FailedWith $ UnexpectedToken x
+parseAbstraction : List Token -> Either ParserResult (Nat, Expr -> Expr)
+parseAbstraction ((VarTok _) :: ((VarTok _) :: _)) = Left $ FailedWith AdvancedSyntaxNotImplemented
+parseAbstraction ((VarTok x) :: (Dot :: xs)) = Right (2, Abstraction x)
+parseAbstraction (x :: _) = Left $ FailedWith $ UnexpectedToken x
+parseAbstraction [] = Left $ FailedWith UnexpectedTermination
 
-  partial
-  parseAbstraction : List Token -> ParserResult
-  parseAbstraction ((VarTok _) :: ((VarTok _) :: _)) = FailedWith AdvancedSyntaxNotImplemented
-  parseAbstraction ((VarTok x) :: (Dot :: xs)) =
-    case parseExpr xs of
-      Found (expr, remainder) => Found (Abstraction x expr, remainder)
-      FailedWith error => FailedWith error
-  parseAbstraction (x :: _) = FailedWith $ UnexpectedToken x
+parseExpr : List Token -> ParserResult
+parseExpr ((VarTok x) :: _) = Found (Variable x, 1)
+parseExpr (Lambda :: xs) =
+  case parseAbstraction xs of
+    Right (skip, mkExpr) =>
+      case xs of
+        _ :: _ :: xs' =>
+          case parseExpr xs' of
+            Found (expr, skip2) => Found (mkExpr expr, skip + skip2)
+            FailedWith error => FailedWith error
+        _ => FailedWith UnexpectedTermination
+    Left result => result
+parseExpr (OpenParen :: xs) = ?asdf
+  --case parseExpr xs of
+  --  Found (expr1, skip) =>
+  --    case parseExpr $ drop skip xs of
+  --      Found (expr2, skip2) =>
+  --        case drop (skip + skip2) xs of
+  --          (CloseParen :: xs) => Found (Application expr1 expr2, skip + skip2 + 1)
+  --          _ => FailedWith FailedToMatchCloseParen
+  --      FailedWith error => FailedWith error
+  --  FailedWith error => FailedWith error
+parseExpr [] = FailedWith UnexpectedTermination
+parseExpr (x :: _) = FailedWith $ UnexpectedToken x
 
-  partial
-  parseApplication : List Token -> ParserResult
-  parseApplication xs =
-    case parseExpr xs of
-      Found (expr1, remainder1) =>
-        case parseExpr remainder1 of
-          Found (expr2, CloseParen :: remainder2) => Found (Application expr1 expr2, remainder2)
-          Found (_, _) => FailedWith FailedToMatchCloseParen
-          FailedWith error => FailedWith error
-      FailedWith error => FailedWith error
-
-partial
 parseTokens : List Token -> ParseResult ParserError Expr
 parseTokens [] = FailedWith NoTokens
-parseTokens ((VarTok x) :: []) = Found $ Variable x
-parseTokens (Lambda :: (_ :: _)) = FailedWith AdvancedSyntaxNotImplemented
-parseTokens (OpenParen :: xs) =
-  case parseApplication xs of
-    Found (expr, []) => Found expr
-    Found (expr, x) => FailedWith $ TrailingCharacters x
+parseTokens xs@(_ :: _) =
+  case parseExpr xs of
+    Found (expr, skip) =>
+      case drop skip xs of
+        [] => Found expr
+        xs => FailedWith $ TrailingCharacters xs
     FailedWith error => FailedWith error
-parseTokens (x :: (_ :: _)) = FailedWith $ UnexpectedToken x
 
-partial
 parse : String -> ParseResult ParserError Expr
 parse code = 
   case tokenize code of
