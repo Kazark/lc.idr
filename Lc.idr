@@ -124,8 +124,15 @@ parse code =
 --     The body of an abstraction extends as far right as possible: λx.M N means λx.(M N) and not (λx.M) N
 --     A sequence of abstractions is contracted: λx.λy.λz.N is abbreviated as λxyz.N[16][17]
 
-bound : Expr -> List Char
-bound (Variable _) = []
-bound (Abstraction x y) = x :: bound y
-bound (Application x y) = bound x ++ bound y
+bound' : Expr -> List Char
+bound' (Variable _) = []
+bound' (Abstraction x y) = x :: bound' y
+bound' (Application x y) = bound' x ++ bound' y
+
+partial
+bound : (code : String) -> ParseResult ParserError (List Char)
+bound code =
+  case parse code of
+    Found expr => Found $ bound' expr
+    FailedWith error => FailedWith error
 
