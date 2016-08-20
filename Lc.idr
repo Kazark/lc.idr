@@ -88,12 +88,12 @@ parseExpr (x :: _) = FailedWith $ UnexpectedToken x
 
 parseTokens : List Token -> ParseResult ParserError Expr
 parseTokens [] = FailedWith NoTokens
-parseTokens xs@(_ :: _) =
+parseTokens xs =
   case parseExpr xs of
     Found (expr, skip) =>
       case drop skip xs of
         [] => Found expr
-        xs => FailedWith $ TrailingCharacters xs
+        xs' => FailedWith $ TrailingCharacters xs'
     FailedWith error => FailedWith error
 
 parse : String -> ParseResult ParserError Expr
