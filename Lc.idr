@@ -82,14 +82,28 @@ partial
 eval : Term -> Either String RTTerm
 eval = evalInEnv [] . toRTTerm
 
-pretty' : RTTerm -> String
-pretty' (RTVar x) = singleton x
-pretty' (Closure x y _) = "^" ++ singleton x ++ "." ++ pretty' y
-pretty' (RTAppl x y) = "(" ++ pretty' x ++ " " ++ pretty' y ++ ")"
+mutual
+  partial
+  showTerm : String -> (Char, RTTerm) -> String
+  showTerm tab (c, term) =
+    tab ++ singleton c ++ " is " ++ pretty' ("  " ++ tab) term
 
+  partial
+  showEnv : String -> Env -> String
+  showEnv tab [] = ""
+  showEnv tab xs@(_ :: _) =
+    "\n" ++ tab ++ "where environemnt is:\n" ++ unlines (map (showTerm $ tab ++ "  ") xs)
+
+  partial
+  pretty' : String -> RTTerm -> String
+  pretty' _ (RTVar x) = singleton x
+  pretty' tab (Closure x y env) = "^" ++ singleton x ++ "." ++ pretty' tab y ++ showEnv tab env
+  pretty' tab (RTAppl x y) = "(" ++ pretty' tab x ++ " " ++ pretty' tab y ++ ")"
+
+partial
 pretty : Either String RTTerm -> String
 pretty (Left l) = l
-pretty (Right r) = pretty' r
+pretty (Right r) = pretty' "  " r
 
 partial
 interp : String -> String
