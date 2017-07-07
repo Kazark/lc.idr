@@ -26,6 +26,31 @@ data Term
   | Func Char Term
   | Appl Term Term
 
+data Interim : Type where
+  Error : String -> Interim
+  ApplIfRParen : Term -> Term -> Interim
+  ArgExpected : Interim
+  DotExpected : Char -> Interim
+  ApplExpected : Interim
+  BodyExpected : Char -> Interim -> Interim
+  ParsedTerm : Term -> Interim
+  ApplOrFunc : Interim
+
+parseOne : Token -> Interim -> Interim
+parseOne _ (Error y) = Error y
+parseOne RParen (ApplIfRParen t0 t1) = ParsedTerm $ Appl t0 t1
+parseOne _ (ApplIfRParen _ _) = Error "encountered unexpected opening parenthesis"
+parseOne (Alpha c) ArgExpected = DotExpected c
+parseOne _ ArgExpected = Error "expected but did not find argument"
+parseOne Dot (DotExpected c) = BodyExpected c ApplOrFunc
+parseOne _ (DotExpected c) = Error "encountered unexpected dot"
+parseOne t ApplExpected = ?totalParse_rhs_5
+parseOne t (BodyExpected c interim) =
+  case parseOne t interim of
+    ParsedTerm t_ => ParsedTerm $ Func c t_
+    _ => Error "failed to parse body"
+parseOne _ _ = Error "asdf"
+
 partial
 parseSingle : List Token -> Either String (Term, List Token)
 parseSingle [] = Left "empty list"
