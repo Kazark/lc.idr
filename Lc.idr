@@ -32,9 +32,12 @@ data Interim : Type where
   ArgExpected : Interim
   DotExpected : Char -> Interim
   ApplExpected : Interim
-  BodyExpected : Char -> Interim -> Interim
+  ParamExpected : Term -> Interim
+  BodyExpected : Char -> Interim
+  BodyExpectedNexted : Char -> Interim -> Interim
+  ApplExpectedNested : Interim -> Interim
+  ParamExpectedNested : Term -> Interim -> Interim
   ParsedTerm : Term -> Interim
-  ApplOrFunc : Interim
 
 parseOne : Token -> Interim -> Interim
 parseOne _ (Error y) = Error y
@@ -42,14 +45,35 @@ parseOne RParen (ApplIfRParen t0 t1) = ParsedTerm $ Appl t0 t1
 parseOne _ (ApplIfRParen _ _) = Error "encountered unexpected opening parenthesis"
 parseOne (Alpha c) ArgExpected = DotExpected c
 parseOne _ ArgExpected = Error "expected but did not find argument"
-parseOne Dot (DotExpected c) = BodyExpected c ApplOrFunc
+parseOne Dot (DotExpected c) = BodyExpected c
 parseOne _ (DotExpected c) = Error "encountered unexpected dot"
-parseOne t ApplExpected = ?totalParse_rhs_5
-parseOne t (BodyExpected c interim) =
-  case parseOne t interim of
-    ParsedTerm t_ => ParsedTerm $ Func c t_
-    _ => Error "failed to parse body"
-parseOne _ _ = Error "asdf"
+parseOne (Alpha c) ApplExpected = ParamExpected (Var c)
+parseOne LParen ApplExpected = ?totalParse_rhs_5
+parseOne Lambda ApplExpected = ?totalParse_rhs_6
+parseOne _ ApplExpected = Error "expected application"
+parseOne (Alpha c) (ParamExpected _) = ParamExpected (Var c)
+parseOne LParen (ParamExpected _) = ?totalParse_rhs_7
+parseOne Lambda (ParamExpected _) = ?totalParse_rhs_8
+parseOne _ (ParamExpected _) = Error "expected parameter"
+parseOne LParen (BodyExpected _) = BodyExpectedNested
+parseOne Lambda (BodyExpected _) = ?totalParse_rhs_8
+parseOne _ (BodyExpected _) = Error "expected parameter"
+parseOne token (BodyExpected c interim) =
+  case parseOne token interim of
+    ParsedTerm term => ParsedTerm $ Func c term
+    Error e => Error e
+    interim_ => BodyExpected c interim_
+parseOne token (ApplExpectedNested interim) =
+  case parseOne token interim of
+    ParsedTerm term => ParamExpected term
+    Error e => Error e
+    interim_ => ApplExpectedNested interim_
+parseOne token (ParamExpectedNested term0 interim) =
+  case parseOne token interim of
+    ParsedTerm term1 => ApplIfRParen term0 term1
+    Error e => Error e
+    interim_ => ParamExpectedNested term0 interim_
+parseOne _ (ParsedTerm _) = Error "trailing characters"
 
 partial
 parseSingle : List Token -> Either String (Term, List Token)
