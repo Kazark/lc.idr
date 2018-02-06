@@ -34,66 +34,71 @@ data Interim : Type where
   ApplExpected : Interim
   ParamExpected : Term -> Interim
   BodyExpected : Char -> Interim
-  BodyExpectedNexted : Char -> Interim -> Interim
+  BodyExpectedNested : Char -> Interim -> Interim
   ApplExpectedNested : Interim -> Interim
   ParamExpectedNested : Term -> Interim -> Interim
   ParsedTerm : Term -> Interim
 
-parseOne : Token -> Interim -> Interim
-parseOne _ (Error y) = Error y
-parseOne RParen (ApplIfRParen t0 t1) = ParsedTerm $ Appl t0 t1
-parseOne _ (ApplIfRParen _ _) = Error "encountered unexpected opening parenthesis"
-parseOne (Alpha c) ArgExpected = DotExpected c
-parseOne _ ArgExpected = Error "expected but did not find argument"
-parseOne Dot (DotExpected c) = BodyExpected c
-parseOne _ (DotExpected c) = Error "encountered unexpected dot"
-parseOne (Alpha c) ApplExpected = ParamExpected (Var c)
-parseOne LParen ApplExpected = ?totalParse_rhs_5
-parseOne Lambda ApplExpected = ?totalParse_rhs_6
-parseOne _ ApplExpected = Error "expected application"
-parseOne (Alpha c) (ParamExpected _) = ParamExpected (Var c)
-parseOne LParen (ParamExpected _) = ?totalParse_rhs_7
-parseOne Lambda (ParamExpected _) = ?totalParse_rhs_8
-parseOne _ (ParamExpected _) = Error "expected parameter"
-parseOne LParen (BodyExpected _) = BodyExpectedNested
-parseOne Lambda (BodyExpected _) = ?totalParse_rhs_8
-parseOne _ (BodyExpected _) = Error "expected parameter"
-parseOne token (BodyExpected c interim) =
-  case parseOne token interim of
+parseOne : Interim -> Token -> Interim
+parseOne (Error y) _ = Error y
+parseOne (ApplIfRParen t0 t1) RParen = ParsedTerm $ Appl t0 t1
+parseOne (ApplIfRParen _ _) _ = Error "expected closing parenthesis"
+parseOne ArgExpected (Alpha c) = DotExpected c
+parseOne ArgExpected _ = Error "expected but did not find argument"
+parseOne (DotExpected c) Dot = BodyExpected c
+parseOne (DotExpected c) _ = Error "expected dot"
+parseOne ApplExpected (Alpha c) = ParamExpected (Var c)
+parseOne ApplExpected LParen = ApplExpectedNested ApplExpected
+parseOne ApplExpected Lambda = ApplExpectedNested ArgExpected
+parseOne ApplExpected _ = Error "expected application"
+parseOne (ParamExpected t) (Alpha c) = ApplIfRParen t (Var c)
+parseOne (ParamExpected t) LParen = ParamExpectedNested t ApplExpected
+parseOne (ParamExpected t) Lambda = ParamExpectedNested t ArgExpected
+parseOne (ParamExpected _) _ = Error "expected parameter"
+parseOne (BodyExpected arg) (Alpha b) = ParsedTerm (Func arg (Var b))
+parseOne (BodyExpected c) LParen = BodyExpectedNested c ApplExpected
+parseOne (BodyExpected c) Lambda = BodyExpectedNested c ArgExpected
+parseOne (BodyExpected _) _ = Error "expected parameter"
+parseOne (BodyExpectedNested c interim) token =
+  case parseOne interim token of
     ParsedTerm term => ParsedTerm $ Func c term
     Error e => Error e
-    interim_ => BodyExpected c interim_
-parseOne token (ApplExpectedNested interim) =
-  case parseOne token interim of
+    interim_ => BodyExpectedNested c interim_
+parseOne (ApplExpectedNested interim) token =
+  case parseOne interim token of
     ParsedTerm term => ParamExpected term
     Error e => Error e
     interim_ => ApplExpectedNested interim_
-parseOne token (ParamExpectedNested term0 interim) =
-  case parseOne token interim of
+parseOne (ParamExpectedNested term0 interim) token =
+  case parseOne interim token of
     ParsedTerm term1 => ApplIfRParen term0 term1
     Error e => Error e
     interim_ => ParamExpectedNested term0 interim_
-parseOne _ (ParsedTerm _) = Error "trailing characters"
+parseOne (ParsedTerm _) _ = Error "trailing characters"
 
-partial
-parseSingle : List Token -> Either String (Term, List Token)
-parseSingle [] = Left "empty list"
-parseSingle (LParen :: xs) = do
-  (first, secondToks) <- parseSingle xs
-  (second, rest) <- parseSingle secondToks
-  case rest of
-    RParen :: blah => Right (Appl first second, blah)
-    _ => Left "Failed to find closing parenthesis"
-parseSingle (RParen :: xs) = Left "encountered unexpected opening parenthesis"
-parseSingle (Dot :: xs) = Left "encountered unexpected dot"
-parseSingle (Lambda :: Alpha argName :: Dot :: xs) =
-  map (\(body, rest) => (Func argName body, rest)) $ parseSingle xs
-parseSingle ((Alpha x) :: xs) = Right (Var x, xs)
-parseSingle _ = Left "Pattern match failed"
+parseInterim : List Token -> Interim
+parseInterim [] = Error "no valid tokens"
+parseInterim (LParen :: xs) = foldl parseOne ApplExpected xs
+parseInterim (RParen :: xs) = Error "invalid expression beginning with )"
+parseInterim (Dot :: xs) = Error "invalid expression beginning with ."
+parseInterim (Lambda :: xs) = foldl parseOne ArgExpected xs
+parseInterim ((Alpha x) :: []) = ParsedTerm (Var x)
+parseInterim ((Alpha _) :: (_ :: _)) = Error "invalid expression beginning with var"
 
-partial
 parse : List Token -> Either String Term
-parse = map fst . parseSingle
+parse toks =
+  case parseInterim toks of
+       (Error x) => Left x
+       (ApplIfRParen _ _) => Left "incomplete application: no end )"
+       ArgExpected => Left "incomplete lambda: arg expected"
+       (DotExpected _) => Left "incomplete lambda: dot expected"
+       ApplExpected => Left "incomplete application: nothing after ("
+       (ParamExpected _) => Left "incomplete application: expecting parameter"
+       (BodyExpected _) => Left "incomplete lambda: body expected"
+       (BodyExpectedNested _ _) => Left "incomplete lambda: nested body incomplete"
+       (ApplExpectedNested _) => Left "incomplete application: first expression incomplete"
+       (ParamExpectedNested _ _) => Left "incomplete application: second expression incomplete"
+       (ParsedTerm x) => Right x
 
 data RTTerm
   = RTVar Char
